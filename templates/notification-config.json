@@ -1,0 +1,338 @@
+{
+  "_comment": "OpenClaw Secure - Notification Configuration Template",
+  "_warning": "DO NOT store real credentials in this file. Use environment variables instead.",
+  "version": "1.0.0",
+  "settings": {
+    "max_notifications_per_hour": 10,
+    "async_timeout": 30,
+    "max_retries": 3,
+    "retry_delay": 2
+  },
+  "templates": {
+    "message": {
+      "critical": {
+        "emoji": "🚨",
+        "color": "red",
+        "priority": "high"
+      },
+      "warning": {
+        "emoji": "⚠️",
+        "color": "orange",
+        "priority": "medium"
+      },
+      "info": {
+        "emoji": "ℹ️",
+        "color": "blue",
+        "priority": "low"
+      },
+      "success": {
+        "emoji": "✅",
+        "color": "green",
+        "priority": "low"
+      }
+    },
+    "formats": {
+      "title_template": "{emoji} {title}",
+      "footer_template": "OpenClaw Secure • {hostname} • {timestamp}",
+      "detail_separator": "\n---\n"
+    }
+  },
+  "platforms": {
+    "feishu": {
+      "name": "飞书 (Feishu/Lark)",
+      "enabled": false,
+      "docs_url": "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot",
+      "env_vars": {
+        "webhook_url": "FEISHU_WEBHOOK_URL",
+        "secret": "FEISHU_SECRET"
+      },
+      "setup_guide": {
+        "steps": [
+          "在飞书群聊中，点击右上角 '...' → '设置' → '群机器人' → '添加机器人'",
+          "选择 '自定义机器人'，输入机器人名称如 'OpenClaw Secure'",
+          "复制 Webhook URL",
+          "（可选）启用签名校验，复制签名密钥",
+          "将 Webhook URL 和密钥（如有）保存到环境变量"
+        ],
+        "example_curl": "curl -X POST 'https://open.feishu.cn/open-apis/bot/v2/hook/xxxxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"msg_type\":\"text\",\"content\":{\"text\":\"test\"}}'"
+      },
+      "message_format": {
+        "type": "interactive_card",
+        "template": {
+          "msg_type": "interactive",
+          "card": {
+            "config": {
+              "wide_screen_mode": true
+            },
+            "header": {
+              "title": {
+                "tag": "plain_text",
+                "content": "{title}"
+              },
+              "template": "{color}"
+            },
+            "elements": [
+              {
+                "tag": "div",
+                "text": {
+                  "tag": "lark_md",
+                  "content": "{message}"
+                }
+              },
+              {
+                "tag": "note",
+                "elements": [
+                  {
+                    "tag": "plain_text",
+                    "content": "{timestamp}"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "dingtalk": {
+      "name": "钉钉 (DingTalk)",
+      "enabled": false,
+      "docs_url": "https://open.dingtalk.com/document/robots/custom-robot-access",
+      "env_vars": {
+        "webhook_url": "DINGTALK_WEBHOOK_URL",
+        "secret": "DINGTALK_SECRET"
+      },
+      "setup_guide": {
+        "steps": [
+          "打开钉钉群聊，点击 '群设置' → '智能群助手' → '添加机器人'",
+          "选择 '自定义' 机器人，设置头像和名称",
+          "复制 Webhook 地址",
+          "（推荐）启用 '加签' 安全设置，复制密钥",
+          "将 Webhook URL 和密钥（如有）保存到环境变量"
+        ],
+        "signature_algorithm": "HMAC-SHA256 + Base64",
+        "example_curl": "curl -X POST 'https://oapi.dingtalk.com/robot/send?access_token=xxxxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"msgtype\":\"text\",\"text\":{\"content\":\"test\"}}'"
+      },
+      "message_format": {
+        "type": "markdown",
+        "template": {
+          "msgtype": "markdown",
+          "markdown": {
+            "title": "OpenClaw Secure",
+            "text": "#### {emoji} {title}\n{message}\n\n> {timestamp}"
+          }
+        }
+      }
+    },
+    "slack": {
+      "name": "Slack",
+      "enabled": false,
+      "docs_url": "https://api.slack.com/messaging/webhooks",
+      "env_vars": {
+        "webhook_url": "SLACK_WEBHOOK_URL"
+      },
+      "setup_guide": {
+        "steps": [
+          "在 Slack 工作区中，创建一个 Incoming Webhook",
+          "访问 https://api.slack.com/apps → 'Create New App' → 'From scratch'",
+          "选择 'Incoming Webhooks' 并激活",
+          "点击 'Add New Webhook to Workspace'，选择目标频道",
+          "复制 Webhook URL 到环境变量"
+        ],
+        "example_curl": "curl -X POST '<YOUR_SLACK_WEBHOOK_URL>' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"text\":\"Hello from OpenClaw Secure\"}'"
+      },
+      "message_format": {
+        "type": "rich_attachment",
+        "template": {
+          "attachments": [
+            {
+              "color": "{color}",
+              "title": "{emoji} {title}",
+              "text": "{message}",
+              "fields": [
+                {
+                  "title": "Level",
+                  "value": "{level}",
+                  "short": true
+                },
+                {
+                  "title": "Time",
+                  "value": "{timestamp}",
+                  "short": true
+                }
+              ],
+              "footer": "OpenClaw Secure",
+              "ts": "{unix_timestamp}"
+            }
+          ]
+        }
+      }
+    },
+    "whatsapp": {
+      "name": "WhatsApp (via Twilio)",
+      "enabled": false,
+      "docs_url": "https://www.twilio.com/docs/whatsapp/quickstart",
+      "env_vars": {
+        "account_sid": "TWILIO_ACCOUNT_SID",
+        "auth_token": "TWILIO_AUTH_TOKEN",
+        "from_number": "TWILIO_WHATSAPP_FROM",
+        "to_number": "TWILIO_WHATSAPP_TO"
+      },
+      "setup_guide": {
+        "steps": [
+          "注册 Twilio 账号: https://www.twilio.com/try-twilio",
+          "在 Twilio Console 中获取 Account SID 和 Auth Token",
+          "在 'Phone Numbers' 中申请 WhatsApp 发送号码",
+          "使用 Twilio 沙盒或绑定你的 WhatsApp Business 账号",
+          "将接收通知的手机号加入允许列表",
+          "将所有凭证保存到环境变量"
+        ],
+        "pricing_note": "Twilio WhatsApp 按消息收费，请参考官方定价",
+        "example_curl": "curl -X POST 'https://api.twilio.com/2010-04-01/Accounts/ACxxxxx/Messages.json' \\\n  --data-urlencode 'From=whatsapp:+14155238886' \\\n  --data-urlencode 'To=whatsapp:+86138xxxxxxxx' \\\n  --data-urlencode 'Body=Hello from OpenClaw' \\\n  -u 'ACxxxxx:auth_token'"
+      },
+      "message_format": {
+        "type": "text",
+        "template": {
+          "From": "whatsapp:{from}",
+          "To": "whatsapp:{to}",
+          "Body": "*{emoji} {title}*\n\n{message}\n\n_{timestamp}_"
+        }
+      }
+    },
+    "webhook": {
+      "name": "Generic Webhook",
+      "enabled": false,
+      "docs_url": "",
+      "env_vars": {
+        "webhook_url": "GENERIC_WEBHOOK_URL",
+        "headers": "GENERIC_WEBHOOK_HEADERS"
+      },
+      "setup_guide": {
+        "steps": [
+          "配置你的通用 Webhook 端点（如 Zapier、Make、自建服务等）",
+          "获取 Webhook URL",
+          "（可选）如果需要自定义 Headers，配置环境变量",
+          "将 URL 保存到环境变量"
+        ],
+        "headers_note": "GENERIC_WEBHOOK_HEADERS 格式: 'Header1: value1\\nHeader2: value2'",
+        "example_curl": "curl -X POST 'https://your-webhook-endpoint.com/notify' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Authorization: Bearer your-token' \\\n  -d '{\"level\":\"INFO\",\"message\":\"Hello\"}'"
+      },
+      "message_format": {
+        "type": "json",
+        "template": {
+          "level": "{level}",
+          "title": "{title}",
+          "message": "{message}",
+          "details": "{details}",
+          "timestamp": "{iso_timestamp}",
+          "source": "openclaw-secure",
+          "hostname": "{hostname}",
+          "pid": "{pid}"
+        }
+      }
+    }
+  },
+  "events": {
+    "security_audit_complete": {
+      "level": "INFO",
+      "title": "安全审计完成",
+      "enabled": true
+    },
+    "security_risk_detected": {
+      "level": "WARNING",
+      "title": "发现安全风险",
+      "enabled": true
+    },
+    "critical_vulnerability": {
+      "level": "CRITICAL",
+      "title": "发现严重漏洞",
+      "enabled": true
+    },
+    "system_initialized": {
+      "level": "SUCCESS",
+      "title": "系统初始化完成",
+      "enabled": true
+    },
+    "configuration_changed": {
+      "level": "WARNING",
+      "title": "配置已变更",
+      "enabled": true
+    }
+  },
+  "environment_template": {
+    "_comment": "Copy this section to your shell profile (~/.bashrc, ~/.zshrc, etc.)",
+    "variables": [
+      {
+        "name": "FEISHU_WEBHOOK_URL",
+        "value": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxxx",
+        "required": false,
+        "description": "飞书自定义机器人 Webhook URL"
+      },
+      {
+        "name": "FEISHU_SECRET",
+        "value": "your-secret-key",
+        "required": false,
+        "description": "飞书签名密钥（如启用了签名校验）"
+      },
+      {
+        "name": "DINGTALK_WEBHOOK_URL",
+        "value": "https://oapi.dingtalk.com/robot/send?access_token=xxxxx",
+        "required": false,
+        "description": "钉钉自定义机器人 Webhook URL"
+      },
+      {
+        "name": "DINGTALK_SECRET",
+        "value": "your-secret-key",
+        "required": false,
+        "description": "钉钉签名密钥（如启用了加签）"
+      },
+      {
+        "name": "SLACK_WEBHOOK_URL",
+        "value": "<YOUR_SLACK_WEBHOOK_URL>",
+        "required": false,
+        "description": "Slack Incoming Webhook URL"
+      },
+      {
+        "name": "TWILIO_ACCOUNT_SID",
+        "value": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "required": false,
+        "description": "Twilio Account SID"
+      },
+      {
+        "name": "TWILIO_AUTH_TOKEN",
+        "value": "your_auth_token",
+        "required": false,
+        "description": "Twilio Auth Token"
+      },
+      {
+        "name": "TWILIO_WHATSAPP_FROM",
+        "value": "+14155238886",
+        "required": false,
+        "description": "Twilio WhatsApp 发送号码（带+号的国家码）"
+      },
+      {
+        "name": "TWILIO_WHATSAPP_TO",
+        "value": "+86138xxxxxxxx",
+        "required": false,
+        "description": "接收通知的 WhatsApp 号码（带+号的国家码）"
+      },
+      {
+        "name": "GENERIC_WEBHOOK_URL",
+        "value": "https://your-webhook-endpoint.com/notify",
+        "required": false,
+        "description": "通用 Webhook 端点 URL"
+      },
+      {
+        "name": "GENERIC_WEBHOOK_HEADERS",
+        "value": "Authorization: Bearer token\\nX-Custom-Header: value",
+        "required": false,
+        "description": "通用 Webhook 自定义 Headers"
+      },
+      {
+        "name": "NOTIFICATION_PLATFORMS",
+        "value": "feishu slack",
+        "required": false,
+        "description": "启用的通知平台（空格分隔，如未设置则自动检测）"
+      }
+    ]
+  }
+}
