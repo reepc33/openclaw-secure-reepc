@@ -1,0 +1,49 @@
+{
+  "gateway": {
+    "port": 18789,
+    "host": "127.0.0.1",
+    "auth": {
+      "enabled": true,
+      "token": "${AUTH_TOKEN}"
+    }
+  },
+  "tools": {
+    "enabled": {
+      "file_read": true,
+      "file_write": true,
+      "file_delete": false,
+      "shell_execute": false,
+      "browser": true,
+      "code_execute": false
+    },
+    "restrictions": {
+      "file_read": {
+        "allowedPaths": ["${WORKSPACE_DIR}"],
+        "blockedPaths": ["/etc", "/root", "/var", "/usr/bin", "/bin", "/sbin"]
+      },
+      "file_write": {
+        "allowedPaths": ["${WORKSPACE_DIR}"],
+        "blockedExtensions": [".sh", ".exe", ".bin", ".so", ".dll"]
+      }
+    }
+  },
+  "agents": {
+    "confirmationRequired": {
+      "deleteOperations": true,
+      "shellCommands": true,
+      "fileWriteOutsideWorkspace": true,
+      "externalNetworkRequests": true
+    },
+    "safetyInstructions": "禁止执行任何删除系统文件、修改系统配置、外发敏感数据的操作。所有高危操作必须经用户确认。严禁向用户索要明文私钥或助记词。"
+  },
+  "skills": {
+    "trustedOnly": true,
+    "autoUpdate": false,
+    "installConfirmation": true
+  },
+  "logging": {
+    "level": "info",
+    "auditLog": true,
+    "auditLogPath": "${OC_DIR}/logs/audit.log"
+  }
+}
