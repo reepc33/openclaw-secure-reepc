@@ -1,0 +1,64 @@
+name: ShellCheck
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Run ShellCheck
+      uses: ludeeus/action-shellcheck@master
+      with:
+        scandir: './'
+        severity: warning
+        format: gcc
+      env:
+        SHELLCHECK_OPTS: -e SC1091 -e SC2002
+    
+    - name: Check script syntax
+      run: |
+        for script in *.sh scripts/*.sh tests/*.sh 2>/dev/null; do
+          if [ -f "$script" ]; then
+            echo "Checking $script..."
+            bash -n "$script"
+          fi
+        done
+      shell: bash
+
+  test-install:
+    name: Test Installation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y shellcheck openssl curl
+    
+    - name: Check script syntax
+      run: |
+        bash -n install.sh
+        bash -n secure-init.sh
+        bash -n uninstall.sh
+        bash -n scripts/security-audit.sh
+    
+    - name: Validate JSON templates
+      run: |
+        if command -v jq >/dev/null 2>&1; then
+          jq empty templates/openclaw.json
+          echo "JSON validation passed"
+        else
+          echo "jq not available, skipping JSON validation"
+        fi

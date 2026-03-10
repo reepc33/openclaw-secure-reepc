@@ -4,7 +4,16 @@
 # Safely removes security hardening without destroying user's OpenClaw
 #
 
-set -e
+set -euo pipefail
+
+# 日志函数
+log_info() {
+    echo "📁 $1"
+}
+
+log_warn() {
+    echo "⚠️  $1" >&2
+}
 
 echo ""
 echo "🗑️  OpenClaw Secure Uninstaller"
@@ -16,70 +25,143 @@ echo ""
 
 OC_DIR="$HOME/.openclaw"
 
-# Check if OpenClaw Secure was installed
+# 兼容性读取函数
+read_compat() {
+    local prompt="$1"
+    local var_name="$2"
+    local default_value="${3:-}"
+    
+    printf "%s" "$prompt"
+    read -r "$var_name"
+    
+    if [ -z "${!var_name}" ] && [ -n "$default_value" ]; then
+        eval "$var_name='$default_value'"
+    fi
+}
+
+# 检查是否已安装
 if [ ! -f "$OC_DIR/config.sha256" ]; then
-    echo "ℹ️  OpenClaw Secure doesn't appear to be installed"
+    log_warn "OpenClaw Secure doesn't appear to be installed"
     echo "   Nothing to uninstall"
     exit 0
 fi
 
-read -p "Continue with uninstall? [y/N] " confirm
+# 确认卸载
+local confirm
+read_compat "Continue with uninstall? [y/N] " confirm "N"
 
-if [[ "$confirm" != "y" ]]; then
+if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
     echo "Cancelled"
     exit 0
 fi
 
 echo ""
 
-# Ask about restoring original config
-if ls "$OC_DIR/backup"/openclaw.json.backup.* 1>/dev/null 2>&1; then
-    LATEST_BACKUP=$(ls -t "$OC_DIR/backup"/openclaw.json.backup.* | head -1)
-    echo "📂 Found backup config: $LATEST_BACKUP"
-    read -p "Restore original configuration? [Y/n] " restore_config
-    
-    if [[ "$restore_config" != "n" ]]; then
-        cp "$LATEST_BACKUP" "$OC_DIR/openclaw.json"
-        echo "✅ Original configuration restored"
+# 询问是否恢复原始配置
+if ls "$OC_DIR/backup"/openclaw.json.backup.* >/dev/null 2>&1; then
+    LATEST_BACKUP=$(ls -t "$OC_DIR/backup"/openclaw.json.backup.* 2>/dev/null | head -1)
+    if [ -n "$LATEST_BACKUP" ]; then
+        echo "📂 Found backup config: $LATEST_BACKUP"
+        local restore_config
+        read_compat "Restore original configuration? [Y/n] " restore_config "Y"
+        
+        if [ "$restore_config" != "n" ] && [ "$restore_config" != "N" ]; then
+            if cp "$LATEST_BACKUP" "$OC_DIR/openclaw.json"; then
+                echo "✅ Original configuration restored"
+            else
+                log_warn "Failed to restore configuration"
+            fi
+        fi
     fi
 else
-    echo "⚠️  No backup configuration found"
+    log_warn "No backup configuration found"
 fi
 
 echo ""
 
-# Ask about removing AGENTS.md
+# 询问是否删除 AGENTS.md
 if [ -f "$OC_DIR/workspace/AGENTS.md" ]; then
-    read -p "Remove security guidelines (AGENTS.md)? [y/N] " remove_agents
-    if [[ "$remove_agents" == "y" ]]; then
-        rm -f "$OC_DIR/workspace/AGENTS.md"
-        echo "✅ AGENTS.md removed"
+    local remove_agents
+    read_compat "Remove security guidelines (AGENTS.md)? [y/N] " remove_agents "N"
+    if [ "$remove_agents" = "y" ] || [ "$remove_agents" = "Y" ]; then
+        if rm -f "$OC_DIR/workspace/AGENTS.md"; then
+            echo "✅ AGENTS.md removed"
+        else
+            log_warn "Failed to remove AGENTS.md"
+        fi
     fi
 fi
 
-# Ask about removing audit scripts
+# 询问是否删除审计脚本
 if [ -d "$OC_DIR/workspace/scripts" ]; then
-    read -p "Remove security audit scripts? [y/N] " remove_scripts
-    if [[ "$remove_scripts" == "y" ]]; then
-        rm -rf "$OC_DIR/workspace/scripts"
-        echo "✅ Audit scripts removed"
+    local remove_scripts
+    read_compat "Remove security audit scripts? [y/N] " remove_scripts "N"
+    if [ "$remove_scripts" = "y" ] || [ "$remove_scripts" = "Y" ]; then
+        if rm -rf "$OC_DIR/workspace/scripts"; then
+            echo "✅ Audit scripts removed"
+        else
+            log_warn "Failed to remove audit scripts"
+        fi
     fi
 fi
 
-# Ask about removing cron job
+# 询问是否删除定时任务
 echo ""
-read -p "Remove daily security audit cron job? [Y/n] " remove_cron
-if [[ "$remove_cron" != "n" ]]; then
-    crontab -l 2>/dev/null | grep -v "security-audit.sh" | crontab - 2>/dev/null || true
-    echo "✅ Cron job removed"
+local remove_cron
+read_compat "Remove daily security audit cron job? [Y/n] " remove_cron "Y"
+if [ "$remove_cron" != "n" ] && [ "$remove_cron" != "N" ]; then
+    if crontab -l 2>/dev/null | grep -q "security-audit.sh"; then
+        if crontab -l 2>/dev/null | grep -v "security-audit.sh" | crontab - 2>/dev/null; then
+            echo "✅ Cron job removed"
+            
+            # 尝试重启 cron 服务（Linux）
+            if [ "$(uname -s)" = "Linux" ]; then
+                # 尝试多种方式重启 cron
+                if command -v systemctl >/dev/null 2>&1; then
+                    if systemctl is-active --quiet cron 2>/dev/null || systemctl is-active --quiet crond 2>/dev/null; then
+                        log_info "Attempting to reload cron service..."
+                        sudo systemctl reload cron 2>/dev/null || \
+                        sudo systemctl reload crond 2>/dev/null || \
+                        log_warn "Could not reload cron service (may require manual restart)"
+                    fi
+                elif command -v service >/dev/null 2>&1; then
+                    log_info "Attempting to reload cron service..."
+                    sudo service cron reload 2>/dev/null || \
+                    sudo service crond reload 2>/dev/null || \
+                    log_warn "Could not reload cron service"
+                fi
+            fi
+        else
+            log_warn "Failed to remove cron job"
+        fi
+    else
+        log_info "No cron job found"
+    fi
 fi
 
-# Ask about removing hash baseline
+# 询问是否删除 hash baseline
 echo ""
-read -p "Remove config hash baseline? [y/N] " remove_baseline
-if [[ "$remove_baseline" == "y" ]]; then
-    rm -f "$OC_DIR/config.sha256"
-    echo "✅ Hash baseline removed"
+local remove_baseline
+read_compat "Remove config hash baseline? [y/N] " remove_baseline "N"
+if [ "$remove_baseline" = "y" ] || [ "$remove_baseline" = "Y" ]; then
+    if rm -f "$OC_DIR/config.sha256" "$OC_DIR/agents.md.sha256" 2>/dev/null; then
+        echo "✅ Hash baseline removed"
+    else
+        log_warn "Failed to remove hash baseline"
+    fi
+fi
+
+# 询问是否删除 token 文件
+if [ -f "$OC_DIR/.auth_token" ]; then
+    local remove_token
+    read_compat "Remove auth token file? [y/N] " remove_token "N"
+    if [ "$remove_token" = "y" ] || [ "$remove_token" = "Y" ]; then
+        if rm -f "$OC_DIR/.auth_token"; then
+            echo "✅ Auth token file removed"
+        else
+            log_warn "Failed to remove auth token file"
+        fi
+    fi
 fi
 
 echo ""

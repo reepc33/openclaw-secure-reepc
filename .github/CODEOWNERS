@@ -1,0 +1,15 @@
+# Code Owners
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global owners
+* @reepc33
+
+# Shell scripts
+*.sh @reepc33
+
+# Documentation
+docs/ @reepc33
+*.md @reepc33
+
+# CI/CD
+.github/workflows/ @reepc33
