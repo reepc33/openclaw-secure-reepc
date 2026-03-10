@@ -44,6 +44,93 @@ log_to_file() {
     echo "[$timestamp] $message" >> "$LOG_DIR/install.log" 2>/dev/null || true
 }
 
+# 清理旧备份函数
+cleanup_old_backups() {
+  local retentionDays="${BACKUP_RETENTION_DAYS:-30}"
+  local backupDir="$BACKUP_DIR"
+  local logFile="$HOME/.openclaw/logs/cleanup.log"
+
+  mkdir -p "$backupDir"
+  mkdir -p "$(dirname "$logFile")" 2>/dev/null || true
+
+  local nowEpoch
+  nowEpoch=$(date +%s)
+  local retentionSecs
+  retentionSecs=$((retentionDays * 24 * 60 * 60))
+  local threshold
+  threshold=$((nowEpoch - retentionSecs))
+
+  shopt -s nullglob
+  local backupFiles=("$backupDir"/*.backup.*)
+  shopt -u nullglob
+
+  if [ ${#backupFiles[@]} -eq 0 ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] No backups found in $backupDir" >> "$logFile" 2>/dev/null || true
+    return 0
+  fi
+
+  declare -a backupMeta
+  local f
+  for f in "${backupFiles[@]}"; do
+    if [ -f "$f" ]; then
+      local mtime
+      mtime=$(stat -f "%m" "$f" 2>/dev/null || stat -c "%Y" "$f" 2>/dev/null || echo "0")
+      [ -n "$mtime" ] || mtime=$(date +%s)
+      backupMeta+=("$mtime|$f")
+    fi
+  done
+
+  if [ ${#backupMeta[@]} -eq 0 ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] No valid backup files found in $backupDir" >> "$logFile" 2>/dev/null || true
+    return 0
+  fi
+
+  IFS=$'\n' sortedBackup=($(printf "%s\n" "${backupMeta[@]}" | sort -nr))
+  unset IFS
+  local keepSet=()
+  for ((i=0; i<5 && i<${#sortedBackup[@]}; i++)); do
+    path="${sortedBackup[$i]#*|}"
+    keepSet+=("$path")
+  done
+  declare -A keepMap
+  for p in "${keepSet[@]}"; do
+    keepMap["$p"]=1
+  done
+
+  local deletedCount=0
+  for f in "${backupFiles[@]}"; do
+    [ -f "$f" ] || continue
+    if [ -z "${keepMap[$f]+x}" ]; then
+      local mtime2
+      mtime2=$(stat -f "%m" "$f" 2>/dev/null || stat -c "%Y" "$f" 2>/dev/null || echo "0")
+      [ -n "$mtime2" ] || mtime2=$(date +%s)
+      if [ "$mtime2" -lt "$threshold" ]; then
+        rm -f "$f"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deleted old backup: $f" >> "$logFile" 2>/dev/null || true
+        ((deletedCount++))
+      fi
+    fi
+  done
+
+  local logLine
+  if [ "$deletedCount" -gt 0 ]; then
+    logLine="Deleted $deletedCount old backups older than ${retentionDays}d, keeping latest 5."
+  else
+    logLine="No old backups deleted. Retention: ${retentionDays}d, kept 5 latest."
+  fi
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${logLine}" >> "$logFile" 2>/dev/null || true
+  log_info "$logLine"
+}
+
+# 初始化日志目录
+mkdir -p "$LOG_DIR"
+log_to_file() {
+    local message="$1"
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] $message" >> "$LOG_DIR/install.log" 2>/dev/null || true
+}
+
 # 初始化日志目录
 mkdir -p "$LOG_DIR"
 
@@ -265,6 +352,71 @@ else
     log_to_file "Warning: security-audit.sh not found in templates"
 fi
 
+log_info "Installing risk advisor..."
+log_to_file "Installing risk-advisor.sh and risk-messages.json"
+
+# 创建 bin 目录
+BIN_DIR="$OC_DIR/bin"
+mkdir -p "$BIN_DIR"
+
+# 安装 risk-advisor.sh
+if [ -f "$SCRIPT_DIR/scripts/risk-advisor.sh" ]; then
+    cp "$SCRIPT_DIR/scripts/risk-advisor.sh" "$SCRIPTS_DIR/risk-advisor.sh"
+    chmod +x "$SCRIPTS_DIR/risk-advisor.sh"
+    log_to_file "risk-advisor.sh installed to scripts directory"
+    
+    # 创建到 bin 目录的符号链接
+    ln -sf "$SCRIPTS_DIR/risk-advisor.sh" "$BIN_DIR/risk-advisor"
+    log_to_file "Symbolic link created at $BIN_DIR/risk-advisor"
+else
+    log_warn "risk-advisor.sh not found in scripts directory"
+    log_to_file "Warning: risk-advisor.sh not found"
+fi
+
+# 安装 risk-messages.json 到配置目录
+if [ -f "$SCRIPT_DIR/templates/risk-messages.json" ]; then
+    cp "$SCRIPT_DIR/templates/risk-messages.json" "$OC_DIR/risk-messages.json"
+    chmod 600 "$OC_DIR/risk-messages.json"
+    log_to_file "risk-messages.json installed"
+else
+    log_warn "risk-messages.json not found in templates directory"
+    log_to_file "Warning: risk-messages.json not found"
+fi
+
+# 确保 PATH 包含 ~/.openclaw/bin
+log_info "Configuring PATH..."
+SHELL_RC=""
+if [ -n "$ZSH_VERSION" ]; then
+    SHELL_RC="$HOME/.zshrc"
+elif [ -n "$BASH_VERSION" ]; then
+    SHELL_RC="$HOME/.bashrc"
+else
+    # 尝试检测默认 shell
+    case "$SHELL" in
+        */zsh) SHELL_RC="$HOME/.zshrc" ;;
+        */bash) SHELL_RC="$HOME/.bashrc" ;;
+        *) SHELL_RC="$HOME/.profile" ;;
+    esac
+fi
+
+if [ -n "$SHELL_RC" ] && [ -f "$SHELL_RC" ]; then
+    # 检查是否已经有 PATH 配置
+    if ! grep -q "\.openclaw/bin" "$SHELL_RC" 2>/dev/null; then
+        echo "" >> "$SHELL_RC"
+        echo "# OpenClaw Secure - Add risk-advisor to PATH" >> "$SHELL_RC"
+        echo 'export PATH="$HOME/.openclaw/bin:$PATH"' >> "$SHELL_RC"
+        log_to_file "PATH updated in $SHELL_RC"
+        log_info "Added ~/.openclaw/bin to PATH in $SHELL_RC"
+        log_info "Run 'source $SHELL_RC' to apply changes"
+    else
+        log_to_file "PATH already configured in $SHELL_RC"
+    fi
+else
+    log_warn "Could not determine shell configuration file"
+    log_to_file "Warning: Shell RC file not found"
+fi
+
+
 log_info "Generating config hash baseline..."
 log_to_file "Generating SHA256 hash baseline"
 
@@ -294,6 +446,67 @@ else
     echo "   Please restart manually: openclaw restart"
 fi
 
-echo ""
+#PW|echo ""
+#XH|echo "✅ Core initialization complete"
+#MP|log_to_file "Installation completed successfully"
+#BY|
+#ZP|# ============================================
+#SX|# 通知配置初始化
+#MT|# ============================================
+#ZP|
+#SM|# 检查并加载通知配置
+#XP|NOTIFICATION_ENV_FILE="$OC_DIR/.env.notifications"
+#XQ|
+#HB|if [[ -f "$NOTIFICATION_ENV_FILE" ]]; then
+#HQ|    log_info "Loading notification configuration..."
+#PH|    # shellcheck source=/dev/null
+#XM|    source "$NOTIFICATION_ENV_FILE"
+#ZP|    
+#TJ|    # 显示已配置的平台
+#XQ|    local configured_platforms=""
+#QZ|    [[ -n "${FEISHU_WEBHOOK_URL:-}" ]] && configured_platforms="$configured_platforms 飞书"
+#XJ|    [[ -n "${DINGTALK_WEBHOOK_URL:-}" ]] && configured_platforms="$configured_platforms 钉钉"
+#HZ|    [[ -n "${SLACK_WEBHOOK_URL:-}" ]] && configured_platforms="$configured_platforms Slack"
+#SN|    [[ -n "${TWILIO_ACCOUNT_SID:-}" ]] && configured_platforms="$configured_platforms WhatsApp"
+#HR|    [[ -n "${GENERIC_WEBHOOK_URL:-}" ]] && configured_platforms="$configured_platforms Webhook"
+#WV|    
+#SW|    if [[ -n "$configured_platforms" ]]; then
+#TB|        echo "   已配置通知平台:$configured_platforms"
+#XY|        log_to_file "Notification platforms configured:$configured_platforms"
+#MV|        
+#RP|        # 发送安装完成通知
+#JW|        if [[ -x "$SCRIPTS_DIR/notification.sh" ]]; then
+#KT|            "$SCRIPTS_DIR/notification.sh" notify-success "OpenClaw Secure 安装完成" "安全加固工具已成功安装并初始化" "主机: $(hostname)" 2>/dev/null || true
+#MM|        fi
+#SQ|    else
+#WN|        echo "   通知配置已保存但未启用任何平台"
+#XM|        log_to_file "Notification config exists but no platforms enabled"
+#HB|    fi
+#SQ|else
+#PJ|    echo ""
+#ZV|    echo "📢 通知配置"
+#NR|    echo "   如需启用安全告警通知，请运行："
+#NM|    echo "   bash $SCRIPTS_DIR/setup-notifications.sh"
+#HQ|    log_to_file "Notification not configured"
+#HB|fi
+#SX|
+#PW|echo ""
+#XH|echo "✅ Core initialization complete"
+#MP|log_to_file "Installation completed successfully"
+#BY|
+#ZP|echo ""
+#XH|echo "🎉 OpenClaw Secure 初始化完成！"
+#MP|echo ""
+#ZP|echo "使用说明："
+#TH|echo "  1. 查看配置: cat ~/.openclaw/openclaw.json"
+#HN|echo "  2. 运行审计: ~/.openclaw/workspace/scripts/security-audit.sh"
+#NR|echo "  3. 风险分析: ~/.openclaw/workspace/scripts/risk-advisor.sh analyze 'command'"
+#ZH|echo "  4. 配置通知: ~/.openclaw/workspace/scripts/setup-notifications.sh"
+#XW|echo ""
+#ZP|echo "安全提示："
+#TH|echo "  • 请妥善保管认证令牌: ~/.openclaw/.auth_token"
+#HN|echo "  • 定期运行安全审计检查系统状态"
+#NR|echo "  • 关注风险告警通知，及时处理安全问题"
+#ZH|echo ""
 echo "✅ Core initialization complete"
 log_to_file "Installation completed successfully"

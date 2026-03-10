@@ -1,10 +1,10 @@
 # Agent Safety Guidelines
 
-> ⚠️  Core principle: Never assume absolute safety, always stay vigilant!
+> ⚠️  Core principle: Safety through awareness, not obstruction. We WARN, we don't BLOCK.
 
-## Red Line Commands (Must get human confirmation)
+## Red Line Commands (Risk Warning + Human Confirmation)
 
-These commands are strictly prohibited from automatic execution:
+These commands trigger risk warnings and require human confirmation before execution:
 
 | Category | Specific Commands | Risk Description |
 |----------|------------------|------------------|
@@ -15,20 +15,27 @@ These commands are strictly prohibited from automatic execution:
 | **Code Injection** | `base64 -d \| bash`, `eval "$(curl ...)"`, `curl \| sh` | Malicious code execution |
 | **Permission Tampering** | `chmod`/`chown` targeting `$OC/` core files | Permission compromise |
 
-### Red Line Command Handling Process
+### Red Line Command Handling Process (Warning Mode)
 
 ```
 Detect red line command
     ↓
-Immediately stop execution
+Run risk-advisor.sh analyze "<command>"
     ↓
-Report to user: "High-risk operation [command] detected, paused. Confirm to continue?"
+Display CRITICAL/WARNING level and detailed risk description
     ↓
-Wait for explicit user response
+Report to user: "⚠️ High-risk operation detected. Review the risk assessment above."
     ↓
-User confirms → Log to memory → Execute
-User rejects → Log to memory → Terminate
+Ask: "Do you want to proceed? (yes/no)"
+    ↓
+User confirms → Log to risk-advisor.log → Execute (NOT blocked)
+User rejects → Log to risk-advisor.log → Terminate
 ```
+
+> ⚠️  **Important**: Risk Advisor does NOT block execution, it only warns.
+> The final decision is always with the user.
+>
+> Use command: `bash ~/.openclaw/bin/risk-advisor.sh analyze "<command>"`
 
 ## Yellow Line Commands (Must be logged to memory)
 
@@ -53,6 +60,62 @@ The following commands must be logged to `memory/YYYY-MM-DD.md` after execution:
 - **Result**: [Success/Failure/Summary]
 - **Executor**: Agent (confirmed by user/auto-executed)
 ```
+
+## Risk Warning System Usage
+
+### Using risk-advisor.sh
+
+The Risk Advisor analyzes command risk levels and provides detailed warnings:
+
+**Analyze a command:**
+```bash
+bash ~/.openclaw/bin/risk-advisor.sh analyze "rm -rf /"
+```
+
+**Check risk level (simple output):**
+```bash
+bash ~/.openclaw/bin/risk-advisor.sh check "sudo apt update"
+```
+
+**Log-only mode:**
+```bash
+bash ~/.openclaw/bin/risk-advisor.sh log-only "docker run hello-world"
+```
+
+### Risk Levels
+
+| Level | Color | Description | Examples |
+|-------|-------|-------------|----------|
+| **CRITICAL** | 🔴 Red | Immediate data loss or system compromise | `rm -rf /`, `mkfs`, reverse shell |
+| **WARNING** | 🟡 Yellow | Potential system impact | `sudo`, `docker`, firewall changes |
+| **INFO** | 🔵 Cyan | Standard operation | `ls`, `cat`, `grep` |
+| **SAFE** | 🟢 Green | No risk detected | Non-destructive read-only commands |
+
+### Integration Workflow
+
+When an Agent detects a red line command:
+
+1. **Analyze**: Run risk assessment
+   ```bash
+   result=$(bash ~/.openclaw/bin/risk-advisor.sh check "<command>")
+   ```
+
+2. **Present**: Show risk details to user
+   ```bash
+   bash ~/.openclaw/bin/risk-advisor.sh analyze "<command>"
+   ```
+
+3. **Confirm**: Ask user for explicit confirmation
+   - Display: "This command is rated [LEVEL] risk. Do you want to proceed? (yes/no)"
+   - Wait for user input
+
+4. **Execute**: If confirmed, execute the command
+   - **Important**: The command is NOT blocked, only warned
+   - Log the execution to risk-advisor.log
+
+5. **Log**: Record in memory
+   - Add to operation audit log
+   - Include risk level and user confirmation
 
 ## Prohibited Actions Checklist
 
@@ -86,4 +149,5 @@ Any irreversible high-risk business operation (fund transfers, contract calls, d
 If anomaly detected, immediately:
 1. Stop OpenClaw: `pkill -f openclaw`
 2. Check logs: `tail -100 ~/.openclaw/logs/audit.log`
-3. Verify config: `sha256sum -c ~/.openclaw/config.sha256`
+3. Check risk advisor logs: `tail -100 ~/.openclaw/logs/risk-advisor.log`
+4. Verify config: `sha256sum -c ~/.openclaw/config.sha256`
